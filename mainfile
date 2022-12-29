@@ -1,0 +1,248 @@
+#include <Arduino.h>
+#include <ModbusMaster.h>                //need to include Modbus Master library
+#include <ModbusMaster2.h> 
+#include <HardwareSerial.h>
+HardwareSerial Serial3(PC6); //FTDA Serial
+HardwareSerial Serial1(PA10, PA9); // RS485 Serial
+HardwareSerial Serial2(PA3, PA2); //Modem Serial
+//HardwareSerial Serial2(PA3, PA2);
+float PAV, PBV, PCV, PAC, PBC, PCC, TAP, unit, PCB, frequency;
+float ua, ub, uc, ia, ib, ic, pf, hz, kwh,fuel_level;
+int SM, HD, MY; //second minute hour day month year
+float TotalEnergy1, TotalEnergy2;
+#define MAX485_Enable   PC7
+
+ModbusMaster node;
+ModbusMaster2 node2;
+word CRC16 (const byte *nData, word wLength);
+
+void server_connect();
+void receivedata();
+String Time_Checking();
+void preTransmission()
+{
+  digitalWrite(MAX485_Enable, 1); //Transmit data
+}
+void postTransmission()
+{
+  digitalWrite(MAX485_Enable, 0); //Receive Data
+}
+void setup ()
+{
+  pinMode(MAX485_Enable, OUTPUT);
+  Serial1.begin(9600, SERIAL_8N2);
+  Serial2.begin(115200, SERIAL_8N2);
+  Serial3.begin(115200, SERIAL_8N2);
+  pinMode (PC11, OUTPUT);
+  pinMode (PA1, OUTPUT);
+
+    node.begin(0x03, Serial1);
+  node.preTransmission(preTransmission);
+  node.postTransmission(postTransmission);
+  modem_start ();
+
+  server_connect();
+}
+bool state = true;
+void loop ()
+{
+}
+//FTDA Serial Print
+String mdm_rpl()
+{
+  if (Serial2.available())
+  {
+    String reply = Serial2.readString();
+    reply.trim();
+    return reply;
+  }
+}
+//Modem Start When Enable Pin PA1 High, PWRKEY PC11 High  few Second and then Low
+void modem_start(void)
+{
+  digitalWrite(PA1, HIGH);
+  delay(500);
+  digitalWrite(PC11, HIGH);
+  delay(500);
+  digitalWrite(PC11, LOW);
+}
+void server_connect()
+{ uint8_t result;
+  uint8_t data [125];
+  Serial2.println("AT\r\n");
+  delay(10);
+  //AT Commands for Status Control
+  Serial2.println("AT+CSQ\r\n");   //Query signal quality
+  delay(10);
+  Serial2.println("AT+CPIN?\r\n");  //Enter PIN
+  delay(10);
+  // AT Commands for Network
+  Serial2.println("AT+COPS?\r\n"); //Operator selection deregister
+  delay(10);
+  Serial2.println("AT+CREG=1\r\n"); //Network registration, 1 -registered, home network
+  delay(10);
+  Serial2.println("AT+CREG?\r\n");
+  delay(10);
+  Serial2.println("AT+CGMI\r\n"); //Request manufacturer identification
+  delay(10);
+  Serial2.println("AT+CNMP=2\r\n"); //Preferred mode selection, 2 – Automatic
+  delay(500);
+  while (1)
+  {
+  Serial3.println("Start 111111");
+  node.begin(0x03, Serial1);
+  node.preTransmission(preTransmission);
+  node.postTransmission(postTransmission);
+  result = node.readHoldingRegisters(0x060, 100);
+
+
+  if (result == node.ku8MBSuccess)
+  {
+    ua = (node.getResponseBuffer(1));
+    ub = (node.getResponseBuffer(2));
+    uc = (node.getResponseBuffer(3));
+    ia = (node.getResponseBuffer(4));
+    ib = (node.getResponseBuffer(5));
+    ic = (node.getResponseBuffer(6));
+    pf = (node.getResponseBuffer(22));
+    hz = (node.getResponseBuffer(23));
+    
+    Serial3.println(ua);
+    Serial3.println(ub);
+    Serial3.println(uc);
+    Serial3.println(ia);
+    Serial3.println(ib);
+    Serial3.println(ic);
+    Serial3.println(pf);
+    Serial3.println(hz);
+
+  }
+  else
+  {
+    ua = 0;
+    ub = 0;
+    uc = 0;
+    ia =0;
+    ib = 0;
+    ic = 0;
+    pf = 0;
+    hz = 0;
+    
+    
+  }
+
+
+  
+  node.begin(0x003, Serial1);
+  node.preTransmission(preTransmission);
+  node.postTransmission(postTransmission);
+  result = node.readHoldingRegisters(0x0000, 25);
+  if (result == node.ku8MBSuccess)
+  {
+    TotalEnergy1 = node.getResponseBuffer(0);
+    TotalEnergy2 = node.getResponseBuffer(1);
+   Serial3.println(TotalEnergy1);
+   Serial3.println(TotalEnergy2);
+  
+  }
+
+
+
+
+  Serial3.println("fuel Level");
+  node2.begin(0x001, Serial1);
+  node2.preTransmission(preTransmission);
+  node2.postTransmission(postTransmission);
+  result = node2.readHoldingRegisters2(0x0100, 1);
+  Serial3.println(result);
+  if (result == node2.ku8MBSuccess)
+  {
+    fuel_level = node2.getResponseBuffer2(1);
+      Serial3.println(fuel_level);
+ 
+  
+  }
+
+Serial3.println("fuel Level end");
+
+  
+
+ 
+
+
+
+
+
+        
+        String string ;
+        string += "{";
+        string += "\"Id\":1";
+        string += ",\"ua\":";
+        string+=String(ua);
+        string += ",\"ub\":";
+         string+=String(ub);
+        string += ",\"uc\":";
+      string+=String(uc);
+         string += ",\"ia\":";
+           string+=String(ia);
+        string += ",\"ib\":";
+            string+=String(ib);
+        string += ",\"ic\":";
+          string+=String(ic);
+
+             string += ",\"pf\":";
+          string+=String(pf);
+             string += ",\"hz\":";
+          string+=String(hz);
+             string += ",\"TotalEnergy1\":";
+          string+=String(TotalEnergy1);
+
+
+         string += ",\"TotalEnergy2\":";
+          string+=String(TotalEnergy2);
+
+
+            string += ",\"fuel_level\":";
+          string+=String(fuel_level);
+
+
+          
+        string += "}";
+
+
+        Serial3.println(string);
+        int data_length = string.length() + 2;
+        Serial3.println(data_length);
+        String payload1 ;
+        payload1 += "AT+CMQTTPAYLOAD=0,";
+        payload1 += String(data_length);
+        payload1 += "\r\n";
+        char* ptopic = "v1/devices/me/telemetry"; //Publish Topic
+        Serial2.println("AT+CMQTTSTART\r\n"); //Start MQTT server
+        delay(500);
+        Serial2.println("AT+CMQTTACCQ=0,\"meter1\"\r\n"); //Acquire a client
+        delay(500);
+        Serial2.println("AT+CMQTTCONNECT=0,\"tcp://thinkiot.com.bd\",20,1,\"meter1\",\"meter1\"\r\n "); //Connect to the server
+        delay(1000);
+        Serial2.println("AT+CMQTTTOPIC=0,23\r\n"); //publish topic
+        delay(500);
+        Serial2.println(ptopic); //SET topic
+        delay(500);
+     // Serial2.println("AT+CMQTTPAYLOAD=0,84\r\n"); //Set publishing message
+        Serial2.println(payload1);
+        delay(500);
+        Serial3.println(mdm_rpl());
+        Serial2.println(string); //Set publishing message
+        delay(500);
+        Serial2.println("AT+CMQTTPUB=0,1,60\r\n"); //Send a PUBLISH message to server
+        delay(1000);
+        Serial3.println(mdm_rpl());
+        Serial2.println("AT+CMQTTDISC=0,120\r\n");
+        delay(500);
+        Serial2.println("AT+CMQTTREL=0\r\n");
+        delay(500);
+        Serial2.println ("AT+CMQTTSTOP\r\n");
+        delay(500);
+      }
+    
+  }
